@@ -8,12 +8,7 @@ terraform {
   }
 }
 
-# Usa el profile local (configurado en ~/.aws/credentials)
-variable "aws_profile" {
-  type        = string
-  description = "llave profile"
-  default     = "web-app"
-}
+
 
 # Este módulo asume que en variables.tf existen:
 # - project_name (string)          # ej: "aristos-escenario3"
@@ -424,3 +419,4 @@ resource "aws_iam_role_policy_attachment" "ecs_admin_attach" {
   role       = aws_iam_role.ecs_services_admin_role.name
   policy_arn = aws_iam_policy.ecs_services_admin.arn
 }
+
