@@ -8,20 +8,6 @@ terraform {
   }
 }
 
-# Variable solicitada
-variable "aws_profile" {
-  type        = string
-  description = "llave profile"
-  default     = "web-app"
-}
-
-# Este main.tf asume variables en variables.tf:
-# - project_name (string)
-# - region (string)
-# - vpc_cidr (string)
-# - public_subnets (list(string))  # p.ej. ["10.20.1.0/24","10.20.2.0/24"]
-# - block_ip (string)
-
 provider "aws" {
   region  = var.region
   profile = var.aws_profile
@@ -37,18 +23,12 @@ resource "aws_vpc" "vpc" {
   cidr_block           = var.vpc_cidr
   enable_dns_support   = true
   enable_dns_hostnames = true
-
-  tags = {
-    Name = "${var.project_name}-vpc"
-  }
+  tags = { Name = "${var.project_name}-vpc" }
 }
 
 resource "aws_internet_gateway" "igw" {
   vpc_id = aws_vpc.vpc.id
-
-  tags = {
-    Name = "${var.project_name}-igw"
-  }
+  tags   = { Name = "${var.project_name}-igw" }
 }
 
 resource "aws_subnet" "public" {
@@ -57,27 +37,19 @@ resource "aws_subnet" "public" {
   cidr_block              = each.value
   map_public_ip_on_launch = true
 
+  # Asegura AZs distintas según el índice en la lista original
   availability_zone = element(
     data.aws_availability_zones.available.names,
     index(var.public_subnets, each.value)
   )
 
-  tags = {
-    Name = "${var.project_name}-public-${replace(each.value, "/","-")}"
-  }
+  tags = { Name = "${var.project_name}-public-${replace(each.value, "/","-")}" }
 }
 
 resource "aws_route_table" "public" {
   vpc_id = aws_vpc.vpc.id
-
-  route {
-    cidr_block = "0.0.0.0/0"
-    gateway_id = aws_internet_gateway.igw.id
-  }
-
-  tags = {
-    Name = "${var.project_name}-public-rt"
-  }
+  route { cidr_block = "0.0.0.0/0"  gateway_id = aws_internet_gateway.igw.id }
+  tags = { Name = "${var.project_name}-public-rt" }
 }
 
 resource "aws_route_table_association" "public_assoc" {
@@ -92,30 +64,11 @@ resource "aws_security_group" "alb_sg" {
   description = "ALB SG"
   vpc_id      = aws_vpc.vpc.id
 
-  ingress {
-    from_port   = 80
-    to_port     = 80
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
+  ingress { from_port = 80  to_port = 80  protocol = "tcp" cidr_blocks = ["0.0.0.0/0"] }
+  ingress { from_port = 443 to_port = 443 protocol = "tcp" cidr_blocks = ["0.0.0.0/0"] }
+  egress  { from_port = 0   to_port = 0   protocol = "-1"  cidr_blocks = ["0.0.0.0/0"] }
 
-  ingress {
-    from_port   = 443
-    to_port     = 443
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  tags = {
-    Name = "${var.project_name}-alb-sg"
-  }
+  tags = { Name = "${var.project_name}-alb-sg" }
 }
 
 resource "aws_security_group" "ecs_sg" {
@@ -129,32 +82,17 @@ resource "aws_security_group" "ecs_sg" {
     protocol        = "tcp"
     security_groups = [aws_security_group.alb_sg.id]
   }
+  egress { from_port = 0 to_port = 0 protocol = "-1" cidr_blocks = ["0.0.0.0/0"] }
 
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  tags = {
-    Name = "${var.project_name}-ecs-sg"
-  }
+  tags = { Name = "${var.project_name}-ecs-sg" }
 }
 
 # ---------------- ECR ----------------
 resource "aws_ecr_repository" "repo" {
   name = var.project_name
-
-  image_scanning_configuration {
-    scan_on_push = true
-  }
-
+  image_scanning_configuration { scan_on_push = true }
   force_delete = true
-
-  tags = {
-    Name = var.project_name
-  }
+  tags = { Name = var.project_name }
 }
 
 # ---------------- ECS Cluster & IAM ----------------
@@ -165,11 +103,7 @@ resource "aws_ecs_cluster" "cluster" {
 data "aws_iam_policy_document" "task_exec_assume" {
   statement {
     actions = ["sts:AssumeRole"]
-
-    principals {
-      type        = "Service"
-      identifiers = ["ecs-tasks.amazonaws.com"]
-    }
+    principals { type = "Service" identifiers = ["ecs-tasks.amazonaws.com"] }
   }
 }
 
@@ -186,11 +120,7 @@ resource "aws_iam_role_policy_attachment" "task_exec_attach" {
 data "aws_iam_policy_document" "task_assume" {
   statement {
     actions = ["sts:AssumeRole"]
-
-    principals {
-      type        = "Service"
-      identifiers = ["ecs-tasks.amazonaws.com"]
-    }
+    principals { type = "Service" identifiers = ["ecs-tasks.amazonaws.com"] }
   }
 }
 
@@ -204,12 +134,9 @@ resource "aws_lb" "app_alb" {
   name               = "${var.project_name}-alb"
   load_balancer_type = "application"
   security_groups    = [aws_security_group.alb_sg.id]
-  subnets            = [for s in aws_subnet.public : s.id]
+  subnets            = [for s in aws_subnet.public : s.id] # Distintas AZs
   idle_timeout       = 60
-
-  tags = {
-    Name = "${var.project_name}-alb"
-  }
+  tags = { Name = "${var.project_name}-alb" }
 }
 
 resource "aws_lb_target_group" "tg" {
@@ -234,15 +161,9 @@ resource "aws_lb_listener" "http_80" {
   load_balancer_arn = aws_lb.app_alb.arn
   port              = 80
   protocol          = "HTTP"
-
   default_action {
     type = "redirect"
-
-    redirect {
-      port        = "443"
-      protocol    = "HTTPS"
-      status_code = "HTTP_301"
-    }
+    redirect { port = "443" protocol = "HTTPS" status_code = "HTTP_301" }
   }
 }
 
@@ -252,7 +173,6 @@ resource "aws_lb_listener" "https_443" {
   protocol          = "HTTPS"
   ssl_policy        = "ELBSecurityPolicy-2016-08"
   certificate_arn   = "arn:aws:acm:us-east-1:064625181580:certificate/ccf638af-6cc7-4f25-9362-a0e5e93bda44"
-
   default_action {
     type             = "forward"
     target_group_arn = aws_lb_target_group.tg.arn
@@ -277,23 +197,16 @@ resource "aws_ecs_task_definition" "task" {
 
   container_definitions = jsonencode([
     {
-      name      = "web"
-      image     = "${aws_ecr_repository.repo.repository_url}:latest"
-      essential = true
-      portMappings = [
-        {
-          containerPort = 8080
-          protocol      = "tcp"
-        }
-      ]
-      environment = [
-        { name = "APP_VERSION", value = "v1" }
-      ]
+      name      = "web",
+      image     = "${aws_ecr_repository.repo.repository_url}:latest",
+      essential = true,
+      portMappings = [{ containerPort = 8080, protocol = "tcp" }],
+      environment = [{ name = "APP_VERSION", value = "v1" }],
       logConfiguration = {
-        logDriver = "awslogs"
+        logDriver = "awslogs",
         options = {
-          awslogs-group         = "/ecs/${var.project_name}"
-          awslogs-region        = var.region
+          awslogs-group         = "/ecs/${var.project_name}",
+          awslogs-region        = var.region,
           awslogs-stream-prefix = "ecs"
         }
       }
@@ -304,7 +217,7 @@ resource "aws_ecs_task_definition" "task" {
 # ---------------- ECS Service ----------------
 resource "aws_ecs_service" "service" {
   name            = "${var.project_name}-svc"
-  cluster         = aws_ecs_cluster.cluster.id
+  cluster         = aws_eccs_cluster.cluster.id
   task_definition = aws_ecs_task_definition.task.arn
   desired_count   = 1
   launch_type     = "FARGATE"
@@ -321,9 +234,7 @@ resource "aws_ecs_service" "service" {
     container_port   = 8080
   }
 
-  depends_on = [
-    aws_lb_listener.https_443
-  ]
+  depends_on = [aws_lb_listener.https_443]
 }
 
 # ---------------- WAF (bloqueo de IP) ----------------
@@ -339,9 +250,7 @@ resource "aws_wafv2_web_acl" "webacl" {
   name  = "${var.project_name}-webacl"
   scope = "REGIONAL"
 
-  default_action {
-    allow {}
-  }
+  default_action { allow {} }
 
   visibility_config {
     cloudwatch_metrics_enabled = true
@@ -352,17 +261,10 @@ resource "aws_wafv2_web_acl" "webacl" {
   rule {
     name     = "BlockSpecificIP"
     priority = 1
-
-    action {
-      block {}
-    }
-
+    action { block {} }
     statement {
-      ip_set_reference_statement {
-        arn = aws_wafv2_ip_set.blocked.arn
-      }
+      ip_set_reference_statement { arn = aws_wafv2_ip_set.blocked.arn }
     }
-
     visibility_config {
       cloudwatch_metrics_enabled = true
       sampled_requests_enabled   = true
@@ -380,19 +282,11 @@ resource "aws_wafv2_web_acl_association" "assoc" {
 data "aws_iam_policy_document" "ecs_services_admin" {
   statement {
     sid = "ECSServiceMgmt"
-
     actions = [
-      "ecs:Describe*",
-      "ecs:List*",
-      "ecs:UpdateService",
-      "ecs:UpdateServicePrimaryTaskSet",
-      "ecs:CreateService",
-      "ecs:DeleteService",
-      "ecs:RegisterTaskDefinition",
-      "ecs:DeregisterTaskDefinition",
+      "ecs:Describe*","ecs:List*","ecs:UpdateService","ecs:UpdateServicePrimaryTaskSet",
+      "ecs:CreateService","ecs:DeleteService","ecs:RegisterTaskDefinition","ecs:DeregisterTaskDefinition",
       "iam:PassRole"
     ]
-
     resources = ["*"]
   }
 }
@@ -406,11 +300,7 @@ resource "aws_iam_policy" "ecs_services_admin" {
 data "aws_iam_policy_document" "ecs_admin_assume" {
   statement {
     actions = ["sts:AssumeRole"]
-
-    principals {
-      type        = "AWS"
-      identifiers = ["*"] # Ajusta al principal real autorizado
-    }
+    principals { type = "AWS" identifiers = ["*"] } # Ajusta al principal autorizado
   }
 }
 
