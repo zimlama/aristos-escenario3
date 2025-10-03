@@ -1,0 +1,11 @@
+# Ignorar todo
+*
+
+!.gitignore
+!README.md
+!Dockerfile
+!app.py
+!main.tf
+!outputs.tf
+!variables.tf
+!cicd.yml
