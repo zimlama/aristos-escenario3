@@ -9,3 +9,6 @@
 !outputs.tf
 !variables.tf
 !cicd.yml
+!README.md
+!assets/
+!assets/**
