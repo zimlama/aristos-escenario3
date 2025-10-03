@@ -12,6 +12,13 @@ provider "aws" {
   region = var.region
 }
 
+variable "aws_profile" {
+  type        = string
+  description = "llave profile"
+  default     = "web-app"
+}
+
+
 # ---------- Networking ----------
 resource "aws_vpc" "vpc" {
   cidr_block           = var.vpc_cidr
