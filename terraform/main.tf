@@ -308,3 +308,4 @@ resource "aws_iam_role_policy_attachment" "ecs_admin_attach" {
   role       = aws_iam_role.ecs_services_admin_role.name
   policy_arn = aws_iam_policy.ecs_services_admin.arn
 }
+
