@@ -28,7 +28,7 @@ provider "aws" {
   profile = var.aws_profile
 }
 
-# AZs disponibles (para repartir subnets)
+# AZs disponibles (para repartir subnets en distintas zonas)
 data "aws_availability_zones" "available" {
   state = "available"
 }
@@ -39,12 +39,17 @@ resource "aws_vpc" "vpc" {
   enable_dns_support   = true
   enable_dns_hostnames = true
 
-  tags = { Name = "${var.project_name}-vpc" }
+  tags = {
+    Name = "${var.project_name}-vpc"
+  }
 }
 
 resource "aws_internet_gateway" "igw" {
   vpc_id = aws_vpc.vpc.id
-  tags   = { Name = "${var.project_name}-igw" }
+
+  tags = {
+    Name = "${var.project_name}-igw"
+  }
 }
 
 resource "aws_subnet" "public" {
@@ -53,13 +58,14 @@ resource "aws_subnet" "public" {
   cidr_block              = each.value
   map_public_ip_on_launch = true
 
-  # Asegura AZs distintas usando el índice de la lista original
   availability_zone = element(
     data.aws_availability_zones.available.names,
     index(var.public_subnets, each.value)
   )
 
-  tags = { Name = "${var.project_name}-public-${replace(each.value, "/","-")}" }
+  tags = {
+    Name = "${var.project_name}-public-${replace(each.value, "/","-")}"
+  }
 }
 
 resource "aws_route_table" "public" {
@@ -70,7 +76,9 @@ resource "aws_route_table" "public" {
     gateway_id = aws_internet_gateway.igw.id
   }
 
-  tags = { Name = "${var.project_name}-public-rt" }
+  tags = {
+    Name = "${var.project_name}-public-rt"
+  }
 }
 
 resource "aws_route_table_association" "public_assoc" {
@@ -106,7 +114,9 @@ resource "aws_security_group" "alb_sg" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
-  tags = { Name = "${var.project_name}-alb-sg" }
+  tags = {
+    Name = "${var.project_name}-alb-sg"
+  }
 }
 
 resource "aws_security_group" "ecs_sg" {
@@ -128,7 +138,9 @@ resource "aws_security_group" "ecs_sg" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
-  tags = { Name = "${var.project_name}-ecs-sg" }
+  tags = {
+    Name = "${var.project_name}-ecs-sg"
+  }
 }
 
 # ---------------- ECR ----------------
@@ -140,7 +152,10 @@ resource "aws_ecr_repository" "repo" {
   }
 
   force_delete = true
-  tags         = { Name = var.project_name }
+
+  tags = {
+    Name = var.project_name
+  }
 }
 
 # ---------------- ECS Cluster & IAM ----------------
@@ -151,6 +166,7 @@ resource "aws_ecs_cluster" "cluster" {
 data "aws_iam_policy_document" "task_exec_assume" {
   statement {
     actions = ["sts:AssumeRole"]
+
     principals {
       type        = "Service"
       identifiers = ["ecs-tasks.amazonaws.com"]
@@ -171,6 +187,7 @@ resource "aws_iam_role_policy_attachment" "task_exec_attach" {
 data "aws_iam_policy_document" "task_assume" {
   statement {
     actions = ["sts:AssumeRole"]
+
     principals {
       type        = "Service"
       identifiers = ["ecs-tasks.amazonaws.com"]
@@ -188,10 +205,12 @@ resource "aws_lb" "app_alb" {
   name               = "${var.project_name}-alb"
   load_balancer_type = "application"
   security_groups    = [aws_security_group.alb_sg.id]
-  subnets            = [for s in aws_subnet.public : s.id] # Distintas AZs
+  subnets            = [for s in aws_subnet.public : s.id]
   idle_timeout       = 60
 
-  tags = { Name = "${var.project_name}-alb" }
+  tags = {
+    Name = "${var.project_name}-alb"
+  }
 }
 
 resource "aws_lb_target_group" "tg" {
@@ -219,6 +238,7 @@ resource "aws_lb_listener" "http_80" {
 
   default_action {
     type = "redirect"
+
     redirect {
       port        = "443"
       protocol    = "HTTPS"
@@ -258,20 +278,23 @@ resource "aws_ecs_task_definition" "task" {
 
   container_definitions = jsonencode([
     {
-      name      = "web",
-      image     = "${aws_ecr_repository.repo.repository_url}:latest",
-      essential = true,
+      name      = "web"
+      image     = "${aws_ecr_repository.repo.repository_url}:latest"
+      essential = true
       portMappings = [
-        { containerPort = 8080, protocol = "tcp" }
-      ],
+        {
+          containerPort = 8080
+          protocol      = "tcp"
+        }
+      ]
       environment = [
         { name = "APP_VERSION", value = "v1" }
-      ],
+      ]
       logConfiguration = {
-        logDriver = "awslogs",
+        logDriver = "awslogs"
         options = {
-          awslogs-group         = "/ecs/${var.project_name}",
-          awslogs-region        = var.region,
+          awslogs-group         = "/ecs/${var.project_name}"
+          awslogs-region        = var.region
           awslogs-stream-prefix = "ecs"
         }
       }
@@ -299,10 +322,12 @@ resource "aws_ecs_service" "service" {
     container_port   = 8080
   }
 
-  depends_on = [aws_lb_listener.https_443]
+  depends_on = [
+    aws_lb_listener.https_443
+  ]
 }
 
-# ---------------- WAF (IP block) ----------------
+# ---------------- WAF (bloqueo de IP) ----------------
 resource "aws_wafv2_ip_set" "blocked" {
   name               = "${var.project_name}-blocked-ipset"
   description        = "IPs bloqueadas"
@@ -315,7 +340,9 @@ resource "aws_wafv2_web_acl" "webacl" {
   name  = "${var.project_name}-webacl"
   scope = "REGIONAL"
 
-  default_action { allow {} }
+  default_action {
+    allow {}
+  }
 
   visibility_config {
     cloudwatch_metrics_enabled = true
@@ -327,7 +354,9 @@ resource "aws_wafv2_web_acl" "webacl" {
     name     = "BlockSpecificIP"
     priority = 1
 
-    action { block {} }
+    action {
+      block {}
+    }
 
     statement {
       ip_set_reference_statement {
@@ -351,7 +380,8 @@ resource "aws_wafv2_web_acl_association" "assoc" {
 # ---------------- IAM rol "admin de servicios ECS" ----------------
 data "aws_iam_policy_document" "ecs_services_admin" {
   statement {
-    sid     = "ECSServiceMgmt"
+    sid = "ECSServiceMgmt"
+
     actions = [
       "ecs:Describe*",
       "ecs:List*",
@@ -363,6 +393,7 @@ data "aws_iam_policy_document" "ecs_services_admin" {
       "ecs:DeregisterTaskDefinition",
       "iam:PassRole"
     ]
+
     resources = ["*"]
   }
 }
@@ -376,6 +407,7 @@ resource "aws_iam_policy" "ecs_services_admin" {
 data "aws_iam_policy_document" "ecs_admin_assume" {
   statement {
     actions = ["sts:AssumeRole"]
+
     principals {
       type        = "AWS"
       identifiers = ["*"] # Ajusta al principal real autorizado
