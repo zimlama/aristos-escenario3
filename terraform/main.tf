@@ -20,7 +20,6 @@ variable "aws_profile" {
 # - region (string)
 # - vpc_cidr (string)
 # - public_subnets (list(string))  # p.ej. ["10.20.1.0/24","10.20.2.0/24"]
-# - certificate_arn (string)
 # - block_ip (string)
 
 provider "aws" {
@@ -252,7 +251,7 @@ resource "aws_lb_listener" "https_443" {
   port              = 443
   protocol          = "HTTPS"
   ssl_policy        = "ELBSecurityPolicy-2016-08"
-  certificate_arn   = var.certificate_arn
+  certificate_arn   = "arn:aws:acm:us-east-1:064625181580:certificate/ccf638af-6cc7-4f25-9362-a0e5e93bda44"
 
   default_action {
     type             = "forward"
