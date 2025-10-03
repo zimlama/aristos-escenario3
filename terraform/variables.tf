@@ -1,6 +1,12 @@
+variable "aws_profile" {
+  type        = string
+  description = "llave profile"
+  default     = "web-app"
+}
+
 variable "project_name" {
   type    = string
-  default = "aws-ci-cd-sec-app"
+  default = "aristos-escenario3"
 }
 
 variable "region" {
@@ -18,13 +24,8 @@ variable "public_subnets" {
   default = ["10.20.1.0/24", "10.20.2.0/24"]
 }
 
-variable "certificate_arn" {
-  type        = string
-  description = "ACM certificate ARN for your domain (same region as ALB)."
-}
-
 variable "block_ip" {
   type        = string
   default     = "1.2.3.4/32"
-  description = "IP/CIDR to block with AWS WAF."
+  description = "IP/CIDR a bloquear con WAF"
 }
