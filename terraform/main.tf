@@ -89,4 +89,338 @@ resource "aws_route_table_association" "public_assoc" {
 
 # ---------------- Security Groups ----------------
 resource "aws_security_group" "alb_sg" {
-  name        = "${var.project_name}-alb-s_
+  name        = "${var.project_name}-alb-sg"
+  description = "ALB SG"
+  vpc_id      = aws_vpc.vpc.id
+
+  ingress {
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  ingress {
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Name = "${var.project_name}-alb-sg"
+  }
+}
+
+resource "aws_security_group" "ecs_sg" {
+  name        = "${var.project_name}-ecs-sg"
+  description = "ECS tasks SG"
+  vpc_id      = aws_vpc.vpc.id
+
+  ingress {
+    from_port       = 8080
+    to_port         = 8080
+    protocol        = "tcp"
+    security_groups = [aws_security_group.alb_sg.id]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Name = "${var.project_name}-ecs-sg"
+  }
+}
+
+# ---------------- ECR ----------------
+resource "aws_ecr_repository" "repo" {
+  name = var.project_name
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+
+  force_delete = true
+
+  tags = {
+    Name = var.project_name
+  }
+}
+
+# ---------------- ECS Cluster & IAM ----------------
+resource "aws_ecs_cluster" "cluster" {
+  name = "${var.project_name}-cluster"
+}
+
+data "aws_iam_policy_document" "task_exec_assume" {
+  statement {
+    actions = ["sts:AssumeRole"]
+
+    principals {
+      type        = "Service"
+      identifiers = ["ecs-tasks.amazonaws.com"]
+    }
+  }
+}
+
+resource "aws_iam_role" "task_exec_role" {
+  name               = "${var.project_name}-task-exec"
+  assume_role_policy = data.aws_iam_policy_document.task_exec_assume.json
+}
+
+resource "aws_iam_role_policy_attachment" "task_exec_attach" {
+  role       = aws_iam_role.task_exec_role.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
+}
+
+data "aws_iam_policy_document" "task_assume" {
+  statement {
+    actions = ["sts:AssumeRole"]
+
+    principals {
+      type        = "Service"
+      identifiers = ["ecs-tasks.amazonaws.com"]
+    }
+  }
+}
+
+resource "aws_iam_role" "task_role" {
+  name               = "${var.project_name}-task-role"
+  assume_role_policy = data.aws_iam_policy_document.task_assume.json
+}
+
+# ---------------- ALB ----------------
+resource "aws_lb" "app_alb" {
+  name               = "${var.project_name}-alb"
+  load_balancer_type = "application"
+  security_groups    = [aws_security_group.alb_sg.id]
+  subnets            = [for s in aws_subnet.public : s.id]
+  idle_timeout       = 60
+
+  tags = {
+    Name = "${var.project_name}-alb"
+  }
+}
+
+resource "aws_lb_target_group" "tg" {
+  name        = "${var.project_name}-tg"
+  port        = 8080
+  protocol    = "HTTP"
+  vpc_id      = aws_vpc.vpc.id
+  target_type = "ip"
+
+  health_check {
+    path                = "/"
+    protocol            = "HTTP"
+    matcher             = "200-399"
+    interval            = 30
+    timeout             = 5
+    healthy_threshold   = 2
+    unhealthy_threshold = 2
+  }
+}
+
+resource "aws_lb_listener" "http_80" {
+  load_balancer_arn = aws_lb.app_alb.arn
+  port              = 80
+  protocol          = "HTTP"
+
+  default_action {
+    type = "redirect"
+
+    redirect {
+      port        = "443"
+      protocol    = "HTTPS"
+      status_code = "HTTP_301"
+    }
+  }
+}
+
+resource "aws_lb_listener" "https_443" {
+  load_balancer_arn = aws_lb.app_alb.arn
+  port              = 443
+  protocol          = "HTTPS"
+  ssl_policy        = "ELBSecurityPolicy-2016-08"
+  certificate_arn   = "arn:aws:acm:us-east-1:064625181580:certificate/ccf638af-6cc7-4f25-9362-a0e5e93bda44"
+
+  default_action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.tg.arn
+  }
+}
+
+# ---------------- Logs ----------------
+resource "aws_cloudwatch_log_group" "lg" {
+  name              = "/ecs/${var.project_name}"
+  retention_in_days = 14
+}
+
+# ---------------- Task Definition ----------------
+resource "aws_ecs_task_definition" "task" {
+  family                   = "${var.project_name}-task"
+  requires_compatibilities = ["FARGATE"]
+  network_mode             = "awsvpc"
+  cpu                      = "256"
+  memory                   = "512"
+  execution_role_arn       = aws_iam_role.task_exec_role.arn
+  task_role_arn            = aws_iam_role.task_role.arn
+
+  container_definitions = jsonencode([
+    {
+      name      = "web",
+      image     = "${aws_ecr_repository.repo.repository_url}:latest",
+      essential = true,
+      portMappings = [
+        {
+          containerPort = 8080,
+          protocol      = "tcp"
+        }
+      ],
+      environment = [
+        { name = "APP_VERSION", value = "v1" }
+      ],
+      logConfiguration = {
+        logDriver = "awslogs",
+        options = {
+          awslogs-group         = "/ecs/${var.project_name}",
+          awslogs-region        = var.region,
+          awslogs-stream-prefix = "ecs"
+        }
+      }
+    }
+  ])
+}
+
+# ---------------- ECS Service ----------------
+resource "aws_ecs_service" "service" {
+  name            = "${var.project_name}-svc"
+  cluster         = aws_ecs_cluster.cluster.id
+  task_definition = aws_ecs_task_definition.task.arn
+  desired_count   = 1
+  launch_type     = "FARGATE"
+
+  network_configuration {
+    subnets          = [for s in aws_subnet.public : s.id]
+    security_groups  = [aws_security_group.ecs_sg.id]
+    assign_public_ip = true
+  }
+
+  load_balancer {
+    target_group_arn = aws_lb_target_group.tg.arn
+    container_name   = "web"
+    container_port   = 8080
+  }
+
+  depends_on = [
+    aws_lb_listener.https_443
+  ]
+}
+
+# ---------------- WAF (bloqueo de IP) ----------------
+resource "aws_wafv2_ip_set" "blocked" {
+  name               = "${var.project_name}-blocked-ipset"
+  description        = "IPs bloqueadas"
+  scope              = "REGIONAL"
+  ip_address_version = "IPV4"
+  addresses          = [var.block_ip]
+}
+
+resource "aws_wafv2_web_acl" "webacl" {
+  name  = "${var.project_name}-webacl"
+  scope = "REGIONAL"
+
+  default_action {
+    allow {}
+  }
+
+  visibility_config {
+    cloudwatch_metrics_enabled = true
+    sampled_requests_enabled   = true
+    metric_name                = "${var.project_name}-waf"
+  }
+
+  rule {
+    name     = "BlockSpecificIP"
+    priority = 1
+
+    action {
+      block {}
+    }
+
+    statement {
+      ip_set_reference_statement {
+        arn = aws_wafv2_ip_set.blocked.arn
+      }
+    }
+
+    visibility_config {
+      cloudwatch_metrics_enabled = true
+      sampled_requests_enabled   = true
+      metric_name                = "block-specific-ip"
+    }
+  }
+}
+
+resource "aws_wafv2_web_acl_association" "assoc" {
+  resource_arn = aws_lb.app_alb.arn
+  web_acl_arn  = aws_wafv2_web_acl.webacl.arn
+}
+
+# ---------------- IAM rol "admin de servicios ECS" ----------------
+data "aws_iam_policy_document" "ecs_services_admin" {
+  statement {
+    sid = "ECSServiceMgmt"
+
+    actions = [
+      "ecs:Describe*",
+      "ecs:List*",
+      "ecs:UpdateService",
+      "ecs:UpdateServicePrimaryTaskSet",
+      "ecs:CreateService",
+      "ecs:DeleteService",
+      "ecs:RegisterTaskDefinition",
+      "ecs:DeregisterTaskDefinition",
+      "iam:PassRole"
+    ]
+
+    resources = ["*"]
+  }
+}
+
+resource "aws_iam_policy" "ecs_services_admin" {
+  name        = "${var.project_name}-ecs-services-admin"
+  description = "Permite gestionar únicamente servicios de ECS y task definitions."
+  policy      = data.aws_iam_policy_document.ecs_services_admin.json
+}
+
+data "aws_iam_policy_document" "ecs_admin_assume" {
+  statement {
+    actions = ["sts:AssumeRole"]
+
+    principals {
+      type        = "AWS"
+      identifiers = ["*"] # Ajusta al principal real autorizado
+    }
+  }
+}
+
+resource "aws_iam_role" "ecs_services_admin_role" {
+  name               = "${var.project_name}-ecs-services-admin-role"
+  assume_role_policy = data.aws_iam_policy_document.ecs_admin_assume.json
+}
+
+resource "aws_iam_role_policy_attachment" "ecs_admin_attach" {
+  role       = aws_iam_role.ecs_services_admin_role.name
+  policy_arn = aws_iam_policy.ecs_services_admin.arn
+}
