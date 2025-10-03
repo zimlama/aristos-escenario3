@@ -59,7 +59,7 @@ resource "aws_subnet" "public" {
   )
 
   tags = {
-    Name = "${var.project_name}-public-${replace(each.value, "/","-")}"
+    Name = "${var.project_name}-public-${replace(each.value, "/", "-")}"
   }
 }
 

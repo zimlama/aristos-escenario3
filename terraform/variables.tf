@@ -33,6 +33,6 @@ variable "block_ip" {
 variable "certificate_arn" {
   type        = string
   description = "ACM certificate ARN for your domain (same region as ALB)."
-  default = "arn:aws:acm:us-east-1:064625181580:certificate/ccf638af-6cc7-4f25-9362-a0e5e93bda44"
+  default     = "arn:aws:acm:us-east-1:064625181580:certificate/ccf638af-6cc7-4f25-9362-a0e5e93bda44"
 }
 
