@@ -10,12 +10,6 @@ terraform {
 
 
 
-# Este módulo asume que en variables.tf existen:
-# - project_name (string)          # ej: "aristos-escenario3"
-# - region (string)                # ej: "us-east-1"
-# - vpc_cidr (string)              # ej: "10.20.0.0/16"
-# - public_subnets (list(string))  # ej: ["10.20.1.0/24","10.20.2.0/24"]
-# - block_ip (string)              # ej: "1.2.3.4/32"
 
 provider "aws" {
   region  = var.region
@@ -59,7 +53,7 @@ resource "aws_subnet" "public" {
   )
 
   tags = {
-    Name = "${var.project_name}-public-${replace(each.value, "/", "-")}"
+    Name = "${var.project_name}-public-${replace(each.value, "/","-")}"
   }
 }
 
@@ -82,7 +76,7 @@ resource "aws_route_table_association" "public_assoc" {
   route_table_id = aws_route_table.public.id
 }
 
-# ---------------- Security Groups ----------------
+
 resource "aws_security_group" "alb_sg" {
   name        = "${var.project_name}-alb-sg"
   description = "ALB SG"
@@ -138,7 +132,7 @@ resource "aws_security_group" "ecs_sg" {
   }
 }
 
-# ---------------- ECR ----------------
+
 resource "aws_ecr_repository" "repo" {
   name = var.project_name
 
@@ -153,7 +147,7 @@ resource "aws_ecr_repository" "repo" {
   }
 }
 
-# ---------------- ECS Cluster & IAM ----------------
+
 resource "aws_ecs_cluster" "cluster" {
   name = "${var.project_name}-cluster"
 }
@@ -195,7 +189,6 @@ resource "aws_iam_role" "task_role" {
   assume_role_policy = data.aws_iam_policy_document.task_assume.json
 }
 
-# ---------------- ALB ----------------
 resource "aws_lb" "app_alb" {
   name               = "${var.project_name}-alb"
   load_balancer_type = "application"
@@ -255,13 +248,11 @@ resource "aws_lb_listener" "https_443" {
   }
 }
 
-# ---------------- Logs ----------------
 resource "aws_cloudwatch_log_group" "lg" {
   name              = "/ecs/${var.project_name}"
   retention_in_days = 14
 }
 
-# ---------------- Task Definition ----------------
 resource "aws_ecs_task_definition" "task" {
   family                   = "${var.project_name}-task"
   requires_compatibilities = ["FARGATE"]
@@ -297,7 +288,6 @@ resource "aws_ecs_task_definition" "task" {
   ])
 }
 
-# ---------------- ECS Service ----------------
 resource "aws_ecs_service" "service" {
   name            = "${var.project_name}-svc"
   cluster         = aws_ecs_cluster.cluster.id
@@ -322,10 +312,9 @@ resource "aws_ecs_service" "service" {
   ]
 }
 
-# ---------------- WAF (bloqueo de IP) ----------------
 resource "aws_wafv2_ip_set" "blocked" {
   name               = "${var.project_name}-blocked-ipset"
-  description        = "IPs bloqueadas"
+  description        = "Bloqueo de IPs"
   scope              = "REGIONAL"
   ip_address_version = "IPV4"
   addresses          = [var.block_ip]
@@ -372,7 +361,6 @@ resource "aws_wafv2_web_acl_association" "assoc" {
   web_acl_arn  = aws_wafv2_web_acl.webacl.arn
 }
 
-# ---------------- IAM rol "admin de servicios ECS" ----------------
 data "aws_iam_policy_document" "ecs_services_admin" {
   statement {
     sid = "ECSServiceMgmt"
@@ -419,4 +407,5 @@ resource "aws_iam_role_policy_attachment" "ecs_admin_attach" {
   role       = aws_iam_role.ecs_services_admin_role.name
   policy_arn = aws_iam_policy.ecs_services_admin.arn
 }
+
 
